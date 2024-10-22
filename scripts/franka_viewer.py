@@ -33,6 +33,10 @@ cat >mjx_single_cube_camera.xml <<EOF
 </mujoco>
 EOF
 ```
+
+Sample Command: MADRONA_MWGPU_KERNEL_CACHE=../build/cache python franka_viewer.py --num-worlds 8 \
+--window-width 2730 --window-height 1536 --batch-render-view-width 64 --batch-render-view-height 64
+
 '''
 
 import argparse
@@ -63,7 +67,7 @@ from mujoco.mjx._src import math
 from mujoco.mjx._src import io
 from mujoco.mjx._src import support
 
-from franka_env import PandaBringToTarget
+from franka_env import PandaBringToTargetVision
 
 from madrona_mjx.viz import VisualizerGPUState, Visualizer
 
