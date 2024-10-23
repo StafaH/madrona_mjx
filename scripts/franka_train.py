@@ -1,4 +1,10 @@
 '''
+Instructions:
+
+1. Build madrona from new_renderer pip install
+2. pip install brax from source (required for wrap_env, which is unreleased)
+3. Add mjx_single_cube_camera.xml to mujoco_menagerie
+4. Run this script from this directory (due to relative paths for mujoco menagerie and build)
 
 ```sh
 cd mujoco_menagerie/franka_emika_panda
@@ -9,7 +15,7 @@ cat >mjx_single_cube_camera.xml <<EOF
   <include file="mjx_scene.xml"/>
 
   <worldbody>
-    <camera name="front" pos="1.2 0 1" fovy="58" mode="fixed" quat="0.6532815 0.2705981 0.2705981 0.6532815 "/>
+    <camera name="front" pos="1.2 0 1" fovy="58" mode="fixed" euler="0 1.2 1.5708"/>
     <body name="box" pos="0.5 0 0.03">
       <freejoint/>
       <geom type="box" name="box" size="0.02 0.02 0.03" condim="3"
@@ -38,7 +44,7 @@ EOF
 Sample Command:
 MADRONA_MWGPU_KERNEL_CACHE=../build/cache python franka_train.py \
   --num-worlds 1024 --batch-render-view-width 64 --batch-render-view-height 64 \
-  --num-steps 10000000 --save-model --save-path frankavision_model
+  --num-steps 20000000 --save-model --save-path frankavision_model
 '''
 
 import argparse
@@ -58,7 +64,7 @@ from vision_ppo import make_vision_ppo_networks
 
 arg_parser = argparse.ArgumentParser()
 arg_parser.add_argument('--num-worlds', type=int, required=True)
-arg_parser.add_argument('--num-steps', type=int, default=10_000_000)
+arg_parser.add_argument('--num-steps', type=int, default=20_000_000)
 arg_parser.add_argument('--save-model', action='store_true')
 arg_parser.add_argument('--save-path', type=str, default='franka_model')
 
@@ -72,7 +78,7 @@ args = arg_parser.parse_args()
 
 def limit_jax_mem(limit):
     os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = f"{limit:.2f}"
-limit_jax_mem(0.1)
+limit_jax_mem(0.6)
 
 
 # Tell XLA to use Triton GEMM
@@ -90,21 +96,28 @@ if __name__ == '__main__':
       height=args.batch_render_view_height,
       use_rt=args.use_raytracer)
   
-  env = training.VmapWrapper(env)
-  env = training.EpisodeWrapper(env, 1000, 1)
-  env = training.AutoResetWrapper(env)
-
+  episode_length = 150
+  action_repeat = 5
   batch_size = 128
-  network_factory = make_vision_ppo_networks
+  network_factory = functools.partial(
+    make_vision_ppo_networks,
+    policy_hidden_layer_sizes=[256, 256, 256],
+    value_hidden_layer_sizes=[256, 256, 256],
+    image_dim=(args.batch_render_view_width, args.batch_render_view_height))
   num_eval_envs = args.num_worlds
 
+  env = training.VmapWrapper(env)
+  env = training.EpisodeWrapper(env, episode_length=episode_length, action_repeat=action_repeat)
+  env = training.AutoResetWrapper(env)
+
   train_fn = functools.partial(
-    ppo.train, num_timesteps=args.num_steps, num_evals=5, reward_scaling=1.0,
-    episode_length=1000, normalize_observations=True, action_repeat=5,
-    unroll_length=10, num_minibatches=16, num_updates_per_batch=8,
-    discounting=0.97, learning_rate=3e-4, entropy_cost=1e-3,
-    num_envs=args.num_worlds, num_eval_envs=num_eval_envs,
+    ppo.train, num_timesteps=args.num_steps, num_evals=5, reward_scaling=0.1,
+    episode_length=episode_length, normalize_observations=True, action_repeat=action_repeat,
+    unroll_length=10, num_minibatches=8, num_updates_per_batch=8,
+    discounting=0.97, learning_rate=3e-4, entropy_cost=1e-3, 
+    num_envs=args.num_worlds, num_eval_envs=num_eval_envs, num_resets_per_eval=1,
     batch_size=batch_size, seed=0, network_factory=network_factory, wrap_env=False)
+
 
   def progress(num_steps, metrics):
     print(f'step: {num_steps}, reward: {metrics["eval/episode_reward"]}')
@@ -118,7 +131,7 @@ if __name__ == '__main__':
 
   print(
     f"""
-    Summary for {args.env} gpu training
+    Summary for gpu training
     Total simulation time: {train_time:.2f} s
     Total training wall time: {metrics['training/walltime']} s
     Total eval wall time: {metrics['eval/walltime']} s

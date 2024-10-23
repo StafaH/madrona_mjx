@@ -15,6 +15,9 @@ from ml_collections import config_dict
 
 from madrona_mjx.renderer import BatchRenderer
 
+import os
+from brax.envs import training
+
 FRANKA_PANDA_ROOT_PATH = epath.Path('mujoco_menagerie/franka_emika_panda')
 
 def default_config():
@@ -160,7 +163,9 @@ class PandaBringToTargetVision(PipelineEnv):
     info.update({'render_token': render_token, 'rgb': rgb, 'depth': depth})
 
     obs = jp.asarray(rgb[0], dtype=jp.float32) / 255.0
-    obs = obs.at[:, :, 3].set(depth[0][..., 0])
+    norm_depth = jp.clip(depth[0], 0, 10)
+    norm_depth = norm_depth / 10
+    obs = obs.at[:, :, 3].set(norm_depth[..., 0])
     state = State(pipeline_state, obs, reward, done, metrics, info)
     return state
 
@@ -220,8 +225,9 @@ class PandaBringToTargetVision(PipelineEnv):
     state.info.update({'rgb': rgb, 'depth': depth})
 
     obs = jp.asarray(rgb[0], dtype=jp.float32) / 255.0
-    depth = jp.asarray(depth[0], dtype=jp.float32)
-    obs = obs.at[:, :, 3].set(depth[0][..., 0])
+    norm_depth = jp.clip(depth[0], 0, 10)
+    norm_depth = norm_depth / 10
+    obs = obs.at[:, :, 3].set(norm_depth[..., 0])
     done = out_of_bounds | jp.isnan(data.qpos).any() | jp.isnan(data.qvel).any()
     done = done.astype(float)
     state = State(data, obs, reward, done, state.metrics, state.info)
@@ -243,3 +249,37 @@ class PandaBringToTargetVision(PipelineEnv):
 #     ])
 
 #     return obs
+
+
+if __name__ == '__main__':
+
+  num_worlds = 8
+  
+  def limit_jax_mem(limit):
+    os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = f"{limit:.2f}"
+  
+  limit_jax_mem(0.6)
+  env = PandaBringToTargetVision(
+    render_batch_size=num_worlds,
+    gpu_id=0,
+    width=64,
+    height=64,
+    use_rt=False)
+
+  env = training.VmapWrapper(env)
+  env = training.EpisodeWrapper(env, 1000, 1)
+
+  reset_fn = jax.jit(env.reset)
+  step_fn = jax.jit(env.step)
+
+  rng = jax.random.PRNGKey(0)
+  rng, reset_rng = jax.random.split(rng, 2)
+  mjx_state = reset_fn(jax.random.split(reset_rng, num_worlds))
+
+  for i in range(5):
+    act = jp.ones((num_worlds, env.action_size))
+    mjx_state = step_fn(mjx_state, act * 0.005)
+  
+  print("Success!")
+
+  

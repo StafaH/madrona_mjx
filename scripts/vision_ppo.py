@@ -114,12 +114,12 @@ def make_vision_ppo_networks(
   .identity_observation_preprocessor,
   policy_hidden_layer_sizes: Sequence[int] = [256, 256],
   value_hidden_layer_sizes: Sequence[int] = [256, 256],
-  image_dim: int = 64,
+  image_dim: Tuple[int, int] = [64, 64],
   activation: ActivationFn = linen.swish) -> PPONetworks:
   """Make Vision PPO networks with preprocessor."""
   
   # Temp hack since brax only passes the last value of shape for observation size
-  image_observation_shape = (1, image_dim, image_dim, channel_size)
+  image_observation_shape = (1, image_dim[0], image_dim[1], channel_size)
 
   parametric_action_distribution = distribution.NormalTanhDistribution(
     event_size=action_size)
