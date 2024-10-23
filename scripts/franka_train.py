@@ -15,7 +15,7 @@ cat >mjx_single_cube_camera.xml <<EOF
   <include file="mjx_scene.xml"/>
 
   <worldbody>
-    <camera name="front" pos="1.2 0 1" fovy="58" mode="fixed" euler="0 1.2 1.5708"/>
+    <camera name="front" pos="1.3 0 0.6" fovy="58" mode="fixed" euler="0 1.2 1.5708"/>
     <body name="box" pos="0.5 0 0.03">
       <freejoint/>
       <geom type="box" name="box" size="0.02 0.02 0.03" condim="3"
@@ -28,8 +28,8 @@ cat >mjx_single_cube_camera.xml <<EOF
 
   <keyframe>
     <key name="home"
-      qpos="0 0.3 0 -1.57079 0 2.0 -0.7853 0.04 0.04 0.7 0 0.03 1 0 0 0"
-      ctrl="0 0.3 0 -1.57079 0 2.0 -0.7853 0.04"/>
+      qpos="0 0.3 0 -1.57079 0 2.0 0.785398 0.04 0.04 0.7 0 0.03 1 0 0 0"
+      ctrl="0 0.3 0 -1.57079 0 2.0 0.785398 0.04"/>
     <key name="pickup"
       qpos="0.2897 0.50732 -0.140016 -2.176 -0.0310497 2.51592 -0.49251 0.04 0.0399982 0.511684 0.0645413 0.0298665 0.665781 2.76848e-17 -2.27527e-17 -0.746147"
       ctrl="0.2897 0.423 -0.144392 -2.13105 -0.0291743 2.52586 -0.492492 0.04"/>
@@ -94,15 +94,16 @@ if __name__ == '__main__':
       gpu_id=args.gpu_id,
       width=args.batch_render_view_width,
       height=args.batch_render_view_height,
-      use_rt=args.use_raytracer)
+      use_rt=args.use_raytracer,
+      max_depth=5)
   
-  episode_length = 150
+  episode_length = 500
   action_repeat = 5
-  batch_size = 128
+  batch_size = 256
   network_factory = functools.partial(
     make_vision_ppo_networks,
-    policy_hidden_layer_sizes=[256, 256, 256],
-    value_hidden_layer_sizes=[256, 256, 256],
+    policy_hidden_layer_sizes=[128, 128, 128],
+    value_hidden_layer_sizes=[128, 128, 128],
     image_dim=(args.batch_render_view_width, args.batch_render_view_height))
   num_eval_envs = args.num_worlds
 
@@ -114,7 +115,7 @@ if __name__ == '__main__':
     ppo.train, num_timesteps=args.num_steps, num_evals=5, reward_scaling=0.1,
     episode_length=episode_length, normalize_observations=True, action_repeat=action_repeat,
     unroll_length=10, num_minibatches=8, num_updates_per_batch=8,
-    discounting=0.97, learning_rate=3e-4, entropy_cost=1e-3, 
+    discounting=0.97, learning_rate=5e-4, entropy_cost=5e-3, 
     num_envs=args.num_worlds, num_eval_envs=num_eval_envs, num_resets_per_eval=1,
     batch_size=batch_size, seed=0, network_factory=network_factory, wrap_env=False)
 
