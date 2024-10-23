@@ -76,7 +76,7 @@ class PandaBringToTargetVision(PipelineEnv):
   """Environment for training franka panda to bring an object to target."""
 
   def __init__(self, render_batch_size: int, gpu_id: int = 0,
-               width: int = 128, height: int = 128,
+               width: int = 128, height: int = 128, max_depth=3.0,
                add_cam_debug_geo: bool = False, 
                use_rt: bool = False,
                render_viz_gpu_hdls = None, **kwargs):
@@ -114,6 +114,7 @@ class PandaBringToTargetVision(PipelineEnv):
     self._init_ctrl = sys.mj_model.keyframe('home').ctrl
     self._lowers = model.actuator_ctrlrange[:, 0]
     self._uppers = model.actuator_ctrlrange[:, 1]
+    self._max_depth = max_depth
 
     self.renderer = BatchRenderer(sys,
                                   gpu_id,
@@ -163,8 +164,8 @@ class PandaBringToTargetVision(PipelineEnv):
     info.update({'render_token': render_token, 'rgb': rgb, 'depth': depth})
 
     obs = jp.asarray(rgb[0], dtype=jp.float32) / 255.0
-    norm_depth = jp.clip(depth[0], 0, 10)
-    norm_depth = norm_depth / 10
+    norm_depth = jp.clip(depth[0], 0, self._max_depth)
+    norm_depth = norm_depth / self._max_depth
     obs = obs.at[:, :, 3].set(norm_depth[..., 0])
     state = State(pipeline_state, obs, reward, done, metrics, info)
     return state
@@ -225,8 +226,8 @@ class PandaBringToTargetVision(PipelineEnv):
     state.info.update({'rgb': rgb, 'depth': depth})
 
     obs = jp.asarray(rgb[0], dtype=jp.float32) / 255.0
-    norm_depth = jp.clip(depth[0], 0, 10)
-    norm_depth = norm_depth / 10
+    norm_depth = jp.clip(depth[0], 0, self._max_depth)
+    norm_depth = norm_depth / self._max_depth
     obs = obs.at[:, :, 3].set(norm_depth[..., 0])
     done = out_of_bounds | jp.isnan(data.qpos).any() | jp.isnan(data.qvel).any()
     done = done.astype(float)

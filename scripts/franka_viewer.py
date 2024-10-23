@@ -34,7 +34,8 @@ cat >mjx_single_cube_camera.xml <<EOF
 EOF
 ```
 
-Sample Command: MADRONA_MWGPU_KERNEL_CACHE=../build/cache python franka_viewer.py --num-worlds 8 \
+Sample Command:
+MADRONA_MWGPU_KERNEL_CACHE=../build/cache python franka_viewer.py --num-worlds 8 \
 --window-width 2730 --window-height 1536 --batch-render-view-width 64 --batch-render-view-height 64
 
 '''
@@ -58,16 +59,16 @@ import jax.numpy as jp
 import flax
 import numpy as np
 
-import mediapy as media
-
-from brax.io import html
-from brax.io import image
+from brax.io import image, model, html
 from brax.training.agents.ppo import train as ppo
+from brax.envs import training
+from brax.training.acme import running_statistics
 from mujoco.mjx._src import math
 from mujoco.mjx._src import io
 from mujoco.mjx._src import support
 
 from franka_env import PandaBringToTargetVision
+from vision_ppo import make_vision_ppo_networks, make_inference_fn
 
 from madrona_mjx.viz import VisualizerGPUState, Visualizer
 
@@ -80,6 +81,8 @@ arg_parser.add_argument('--batch-render-view-width', type=int, required=True)
 arg_parser.add_argument('--batch-render-view-height', type=int, required=True)
 arg_parser.add_argument('--add-cam-debug-geo', action='store_true')
 arg_parser.add_argument('--use-raytracer', action='store_true')
+arg_parser.add_argument('--inference', action='store_true')
+arg_parser.add_argument('--model-path', type=str, default='frankavision_model')
 
 args = arg_parser.parse_args()
 
@@ -100,20 +103,40 @@ if __name__ == '__main__':
       use_rt=args.use_raytracer,
       render_viz_gpu_hdls=viz_gpu_state.get_gpu_handles(),
   )
-  jit_env_reset = jax.jit(jax.vmap(env.reset))
-  jit_env_step = jax.jit(jax.vmap(env.step))
 
-  # rollout the env
-  rollout = []
+  if args.inference:
+    env = training.VmapWrapper(env)
+    env = training.EpisodeWrapper(env, 500, 1)
+    env = training.AutoResetWrapper(env)
+    jit_env_reset = jax.jit(env.reset)
+    jit_env_step = jax.jit(env.step)
+  else:
+    jit_env_reset = jax.jit(jax.vmap(env.reset))
+    jit_env_step = jax.jit(jax.vmap(env.step))    
+
   rng = jax.random.PRNGKey(seed=2)
-  rng, *key = jax.random.split(rng, args.num_worlds + 1)
-  state = jit_env_reset(rng=jp.array(key))
+  rng, reset_rng = jax.random.split(rng, 2)
+  state = jit_env_reset(jax.random.split(reset_rng, args.num_worlds))
+  
+  if args.inference:
+    params = model.load_params(args.model_path)
+    ppo_network = make_vision_ppo_networks(
+      channel_size=state.obs.shape[-1],
+      action_size=env.action_size,
+      preprocess_observations_fn=running_statistics.normalize)
+    
+    make_inference_fn = make_inference_fn(ppo_network)
+    inference_fn = make_inference_fn(params)
+    jit_inference_fn = jax.jit(inference_fn)
 
   def step_fn(carry):
     rng, state = carry
 
     act_rng, rng = jax.random.split(rng)
-    ctrl = jax.random.uniform(act_rng, (args.num_worlds, env.sys.nu))
+    if args.inference:
+      ctrl, _ = jit_inference_fn(state.obs, act_rng)
+    else:
+      ctrl = jax.random.uniform(act_rng, (args.num_worlds, env.sys.nu))
     state = jit_env_step(state, ctrl)
 
     return rng, state
