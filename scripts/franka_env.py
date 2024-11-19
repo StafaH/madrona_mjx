@@ -278,29 +278,12 @@ class PandaBringToTargetVision(PipelineEnv):
     new_tip_pose = new_tip_pose.at[:3, :3].set(current_tip_rotation)
     new_tip_pose = new_tip_pose.at[:3, 3].set(new_tip_position)
 
-    jaw = jp.clip(action[3], 0, 1)
+    jaw = jp.clip(action[3], 0, 0.04)
     jointpos = compute_franka_ik(new_tip_pose, current_qpos[6], current_qpos[:7])
     jointpos_withjaw = jp.append(jointpos, jaw)
     
     # TODO: Should probably check if there are nan values and do something smart about it
-
     return jointpos_withjaw, new_tip_position
-
-  # def _get_obs(self, data: base.State, info: dict[str, Any]) -> jax.Array:
-  #   gripper_pos = data.site_xpos[self._gripper_site]
-  #   gripper_mat = data.site_xmat[self._gripper_site].ravel()
-  #   obs = jp.concatenate([
-  #       data.qpos,
-  #       data.qvel,
-  #       gripper_pos,
-  #       gripper_mat[3:],
-  #       data.xmat[self._box_body].ravel()[3:],
-  #       data.xpos[self._box_body] - data.site_xpos[self._gripper_site],
-  #       info['target_pos'] - data.xpos[self._box_body],
-  #       data.ctrl - data.qpos[self._robot_qposadr[:-1]],
-  #   ])
-
-  #   return obs
 
 
 if __name__ == '__main__':
@@ -333,5 +316,3 @@ if __name__ == '__main__':
     mjx_state = step_fn(mjx_state, act * 0.005)
   
   print("Success!")
-
-  
