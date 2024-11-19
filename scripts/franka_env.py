@@ -34,13 +34,13 @@ def default_config():
       # The coefficients for all reward terms used for training.
       reward_scales=config_dict.create(
           # Gripper goes to the box.
-          gripper_box=4.0,
+          gripper_box=1.0,
           # Box goes to the target mocap.
-          box_target=8.0,
+          box_target=1.0,
           # Do not collide the gripper with the floor.
-          no_floor_collision=0.25,
-          # Arm stays close to target pose.
-          robot_target_qpos=0.3,
+          # no_floor_collision=0.25,
+          # # Arm stays close to target pose.
+          # robot_target_qpos=0.3,
       ),
   )
 
@@ -144,11 +144,12 @@ class PandaBringToTargetVision(PipelineEnv):
         minval=jp.array([-0.2, -0.2, 0.0]),
         maxval=jp.array([0.2, 0.2, 0.0])) + self._init_box_pos
 
-    # initialize target position
-    target_pos = jax.random.uniform(
-        rng_target, (3,),
-        minval=jp.array([-0.2, -0.2, 0.2]),
-        maxval=jp.array([0.2, 0.2, 0.4])) + self._init_box_pos
+    # # initialize target position
+    # target_pos = jax.random.uniform(
+    #     rng_target, (3,),
+    #     minval=jp.array([-0.2, -0.2, 0.2]),
+    #     maxval=jp.array([0.2, 0.2, 0.4])) + self._init_box_pos
+    target_pos = jp.array([0.0, 0.1, 0.2])
 
     # initialize pipeline state
     init_q = jp.array(self._init_q).at[
@@ -159,15 +160,18 @@ class PandaBringToTargetVision(PipelineEnv):
     pipeline_state = pipeline_state.replace(ctrl=self._init_ctrl)
     # set target mocap position
     # TODO(btaba): replace with mocap_pos once MJX version 3.2.3 is released.
-    pipeline_state = pipeline_state.replace(
-        xpos=pipeline_state.xpos.at[self._target_id, :].set(target_pos))
+    # pipeline_state = pipeline_state.replace(
+    #     xpos=pipeline_state.xpos.at[self._target_id, :].set(target_pos))
 
     # initialize env state and info
     metrics = {
         'out_of_bounds': jp.array(0.0),
         **{k: 0.0 for k in self._config.reward_scales.keys()},
     }
-    info = {'rng': rng, 'target_pos': target_pos, 'reached_box': 0.0, 'current_pos': self._start_tip_transform[:3, 3]}
+    info = {'rng': rng,
+            'target_pos': target_pos, 
+            'reached_box': 0.0,
+            'current_pos': self._start_tip_transform[:3, 3]}
     reward, done = jp.zeros(2)
 
     render_token, rgb, depth = self.renderer.init(pipeline_state)
@@ -203,12 +207,12 @@ class PandaBringToTargetVision(PipelineEnv):
     gripper_pos = data.site_xpos[self._gripper_site]
     box_target = 1 - jp.tanh(5 * jp.linalg.norm(target_pos - box_pos))
     gripper_box = 1 - jp.tanh(5 * jp.linalg.norm(box_pos - gripper_pos))
-    robot_target_qpos = 1 - jp.tanh(
-        jp.linalg.norm(
-            state.pipeline_state.qpos[self._robot_arm_qposadr]
-            - self._init_q[self._robot_arm_qposadr]
-        )
-    )
+    # robot_target_qpos = 1 - jp.tanh(
+    #     jp.linalg.norm(
+    #         state.pipeline_state.qpos[self._robot_arm_qposadr]
+    #         - self._init_q[self._robot_arm_qposadr]
+    #     )
+    # )
 
     hand_floor_collision = [
         _geoms_colliding(state.pipeline_state, self._floor_geom, g)
@@ -230,7 +234,7 @@ class PandaBringToTargetVision(PipelineEnv):
         'box_target': box_target * state.info['reached_box'],
         'gripper_box': gripper_box,
         'no_floor_collision': no_floor_collision,
-        'robot_target_qpos': robot_target_qpos,
+        # 'robot_target_qpos': robot_target_qpos,
     }
     rewards = {k: v * self._config.reward_scales[k] for k, v in rewards.items()}
     reward = jp.clip(sum(rewards.values()), -1e4, 1e4)
