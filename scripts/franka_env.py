@@ -70,7 +70,7 @@ def default_config():
           # Box goes to the target mocap.
           box_target=8.0,
           # Do not collide the gripper with the floor.
-          # no_floor_collision=0.25,
+          no_floor_collision=0.25,
           # # Arm stays close to target pose.
           # robot_target_qpos=0.3,
       ),
@@ -181,7 +181,7 @@ class PandaBringToTargetVision(PipelineEnv):
     #     rng_target, (3,),
     #     minval=jp.array([-0.2, -0.2, 0.2]),
     #     maxval=jp.array([0.2, 0.2, 0.4])) + self._init_box_pos
-    target_pos = jp.array([0.0, 0.1, 0.2])
+    target_pos = jp.array([0.5, 0.0, 0.3])
 
     # initialize pipeline state
     init_q = jp.array(self._init_q).at[
@@ -246,16 +246,16 @@ class PandaBringToTargetVision(PipelineEnv):
     #     )
     # )
 
-    # hand_floor_collision = [
-    #     _geoms_colliding(state.pipeline_state, self._floor_geom, g)
-    #     for g in [
-    #         self._left_finger_geom,
-    #         self._right_finger_geom,
-    #         self._hand_geom,
-    #     ]
-    # ]
-    # floor_collision = sum(hand_floor_collision) > 0
-    # no_floor_collision = 1 - floor_collision
+    hand_floor_collision = [
+        _geoms_colliding(state.pipeline_state, self._floor_geom, g)
+        for g in [
+            self._left_finger_geom,
+            self._right_finger_geom,
+            self._hand_geom,
+        ]
+    ]
+    floor_collision = sum(hand_floor_collision) > 0
+    no_floor_collision = 1 - floor_collision
 
     state.info['reached_box'] = 1.0 * jp.maximum(
         state.info['reached_box'],
@@ -265,7 +265,7 @@ class PandaBringToTargetVision(PipelineEnv):
     rewards = {
         'box_target': box_target * state.info['reached_box'],
         'gripper_box': gripper_box,
-        # 'no_floor_collision': no_floor_collision,
+        'no_floor_collision': no_floor_collision,
         # 'robot_target_qpos': robot_target_qpos,
     }
     rewards = {k: v * self._config.reward_scales[k] for k, v in rewards.items()}

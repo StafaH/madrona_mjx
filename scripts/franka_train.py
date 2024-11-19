@@ -95,10 +95,10 @@ if __name__ == '__main__':
       width=args.batch_render_view_width,
       height=args.batch_render_view_height,
       use_rt=args.use_raytracer,
-      max_depth=5)
+      max_depth=2)
   
-  episode_length = 500
-  action_repeat = 5
+  episode_length = 250
+  action_repeat = 2
   batch_size = 256
   network_factory = functools.partial(
     make_vision_ppo_networks,

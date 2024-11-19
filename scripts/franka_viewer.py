@@ -67,7 +67,7 @@ from mujoco.mjx._src import math
 from mujoco.mjx._src import io
 from mujoco.mjx._src import support
 
-from franka_env import PandaBringToTargetVision
+from franka_env import PandaBringToTargetVision, RobotAutoResetWrapper
 from vision_ppo import make_vision_ppo_networks, make_inference_fn
 
 from madrona_mjx.viz import VisualizerGPUState, Visualizer
@@ -107,7 +107,7 @@ if __name__ == '__main__':
   if args.inference:
     env = training.VmapWrapper(env)
     env = training.EpisodeWrapper(env, 500, 1)
-    env = training.AutoResetWrapper(env)
+    env = RobotAutoResetWrapper(env)
     jit_env_reset = jax.jit(env.reset)
     jit_env_step = jax.jit(env.step)
   else:
