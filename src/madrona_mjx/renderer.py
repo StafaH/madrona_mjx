@@ -126,8 +126,8 @@ class BatchRenderer:
     geom_groups = m.geom_group
     geom_data_ids = m.geom_dataid
     geom_sizes = jax.device_get(m.geom_size)
-    geom_mat_ids = m.geom_matid
-    geom_rgba = m.geom_rgba
+    geom_mat_ids = jax.device_get(m.geom_matid)
+    geom_rgba = jax.device_get(m.geom_rgba)
     mat_rgba = m.mat_rgba
     light_mode = m.light_mode
     light_isdir = m.light_directional
