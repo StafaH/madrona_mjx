@@ -28,11 +28,10 @@ def compute_franka_fk(joint_pos):
   l5a = -0.0825
   l5d = 0.384
   l7 = 0.088
-  flange = 0.107
   
-  # To flange is 0.088 and to hand tip is 0.2104
-  # l7 = 0.2104
-  # l7 = 0.088
+  # ee = 0.107
+  ee = 0.2104
+
 
   t_7_0 = jp.identity(4)
   t_1_0 = mat_from_dh_revolute(joint_pos[0], 0, 0, l1, 0)
@@ -42,7 +41,7 @@ def compute_franka_fk(joint_pos):
   t_5_4 = mat_from_dh_revolute(joint_pos[4], -PI_2, l5a, l5d, 0)
   t_6_5 = mat_from_dh_revolute(joint_pos[5], PI_2, 0, 0, 0)
   t_7_6 = mat_from_dh_revolute(joint_pos[6], PI_2, l7, 0, 0)
-  t_f_7 = mat_from_dh_revolute(0, 0, 0, flange, 0)
+  t_f_7 = mat_from_dh_revolute(-jp.pi/4, 0, 0, ee, 0)
   
   t_7_0 = jp.matmul(t_7_0, t_1_0)
   t_7_0 = jp.matmul(t_7_0, t_2_1)
@@ -56,7 +55,7 @@ def compute_franka_fk(joint_pos):
   return t_7_0
 
 
-def franka_compute_ik(t_7_0, q7, q_actual):
+def compute_franka_ik(t_7_0, q7, q_actual):
   # Jax adaptation of C++ franka ik solution from https://github.com/ffall007/franka_analytical_ik/blob/main/franka_ik_He.hpp
   # Write the above C++ code in pure jax numpy
   
@@ -66,9 +65,9 @@ def franka_compute_ik(t_7_0, q7, q_actual):
   d1 = 0.3330
   d3 = 0.3160
   d5 = 0.3840
-  # d7e = 0.2104
+  d7e = 0.2104
   #alt
-  d7e = 0.107
+  # d7e = 0.107
   a4 = 0.0825
   a7 = 0.0880
 
@@ -278,11 +277,20 @@ def franka_compute_ik(t_7_0, q7, q_actual):
     ),
     q
   )
+  
+  # q = jp.where(
+  #   not greater_than_1 and is_case1_1,
+  #   q.at[1].set(-q[1]),
+  #   q
+  # )
+
   q = jp.where(
-    not greater_than_1 and is_case1_1,
-    q.at[1].set(-q[1]),
-    q
-  )
+    greater_than_1,
+    q,
+    jp.where(
+      is_case1_1,
+      q.at[1].set(-q[1]),
+      q))
   
   # if q[0] <= q_min[0] or q[0] >= q_max[0] or q[1] <= q_min[1] or q[1] >= q_max[1]:
   #   return q_nan
@@ -325,7 +333,8 @@ if __name__ == '__main__':
   # joint_pos = jp.array([-0.261, -0.048, -0.166, -2.023, 0.024, 1.994, 0.0])
   # joint_pos = jp.array([2.70474, 0.25356, -2.71034, -2.33938,
   #                       0.084890, 2.11775, 0.54595])
-  home = jp.array([0, 0.3, 0, -1.57079, 0, 2.0, 0.785398])
+  jit_franka_ik = jax.jit(compute_franka_ik)
+  home = jp.array([0, 0.3, 0, -1.57079, 0, 2.0, -0.7853])
   t_7_0 = compute_franka_fk(home)
 
   for row in t_7_0:
@@ -336,11 +345,12 @@ if __name__ == '__main__':
   print(t_7_0)
 
   # q_actual = jp.array([0, 0.3, 0, -1.57079, 0, 2.0, 0.785398])
-  q_actual =  jp.array([0, 0.3, 0, -1.57079, 0, 2.0, 0.785398])
+  q_actual =  jp.array([0, 0.3, 0, -1.57079, 0, 2.0, -0.7853])
 
   # Add 45 degree offset to remote hand offset
-  q7 = q_actual[6] + jp.pi/4
-  q_actual = q_actual.at[6].set(q7)
-  q = franka_compute_ik(t_7_0, q7, q_actual)
+  # q7 = q_actual[6] + jp.pi/4
+  # q_actual = q_actual.at[6].set(q7)
+  q7 = q_actual[6]
+  q = jit_franka_ik(t_7_0, q7, q_actual)
 
   print(q)

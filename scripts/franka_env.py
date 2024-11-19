@@ -20,6 +20,8 @@ from brax.envs import training
 
 FRANKA_PANDA_ROOT_PATH = epath.Path('mujoco_menagerie/franka_emika_panda')
 
+from franka_ik import compute_franka_fk, compute_franka_ik
+
 def default_config():
   """Returns reward config for the environment."""
 
@@ -116,6 +118,10 @@ class PandaBringToTargetVision(PipelineEnv):
     self._uppers = model.actuator_ctrlrange[:, 1]
     self._max_depth = max_depth
 
+    # Using fk ik for cartesian control
+    self._start_tip_transform = compute_franka_fk(self._init_ctrl[:7])
+    self._speed_multiplier = 0.005
+
     self.renderer = BatchRenderer(sys,
                                   gpu_id,
                                   render_batch_size, 
@@ -124,6 +130,10 @@ class PandaBringToTargetVision(PipelineEnv):
                                   add_cam_debug_geo,
                                   use_rt,
                                   render_viz_gpu_hdls)
+
+  @property
+  def action_size(self) -> int:
+    return 4
 
   def reset(self, rng: jax.Array) -> State:
     rng, rng_box, rng_target = jax.random.split(rng, 3)
@@ -157,7 +167,7 @@ class PandaBringToTargetVision(PipelineEnv):
         'out_of_bounds': jp.array(0.0),
         **{k: 0.0 for k in self._config.reward_scales.keys()},
     }
-    info = {'rng': rng, 'target_pos': target_pos, 'reached_box': 0.0}
+    info = {'rng': rng, 'target_pos': target_pos, 'reached_box': 0.0, 'current_pos': self._start_tip_transform[:3, 3]}
     reward, done = jp.zeros(2)
 
     render_token, rgb, depth = self.renderer.init(pipeline_state)
@@ -171,12 +181,21 @@ class PandaBringToTargetVision(PipelineEnv):
     return state
 
   def step(self, state: State, action: jax.Array) -> State:
-    delta = action * self._config.action_scale
-    ctrl = state.pipeline_state.ctrl + delta
+    # delta = action * self._config.action_scale
+    # ctrl = state.pipeline_state.ctrl + delta
+
+    ctrl, new_tip_position = self.move_tip(
+      state.info['current_pos'],
+      self._start_tip_transform[:3, :3],
+      state.pipeline_state.qpos,
+      action,
+      self._speed_multiplier)
     ctrl = jp.clip(ctrl, self._lowers, self._uppers)
 
     # step the physics
     data = self.pipeline_step(state.pipeline_state, ctrl)
+
+    state.info.update({'current_pos': new_tip_position})
 
     # compute reward terms
     target_pos = state.info['target_pos']
@@ -234,22 +253,51 @@ class PandaBringToTargetVision(PipelineEnv):
     state = State(data, obs, reward, done, state.metrics, state.info)
 
     return state
+  
+  def move_tip(
+    self,
+    current_tip_position: jax.Array,
+    current_tip_rotation: jax.Array,
+    current_qpos: jax.Array,
+    action: jax.Array,
+    speed_multiplier: float) -> jax.Array:
+    """Calculate new tip position from cartesian increment."""
+    scaled_position_increment = action[:3] * speed_multiplier
+    new_tip_position = current_tip_position.at[:3].add(scaled_position_increment)
+    
+    # new_tip_position = jp.clip(new_tip_position, -1, 1)
+    new_tip_position = new_tip_position.at[0].set(jp.clip(new_tip_position[0], 0.25, 0.77))
+    new_tip_position = new_tip_position.at[1].set(jp.clip(new_tip_position[1], -0.35, 0.35))
+    new_tip_position = new_tip_position.at[2].set(jp.clip(new_tip_position[2], 0.02, 0.5))
 
-#   def _get_obs(self, data: base.State, info: dict[str, Any]) -> jax.Array:
-#     gripper_pos = data.site_xpos[self._gripper_site]
-#     gripper_mat = data.site_xmat[self._gripper_site].ravel()
-#     obs = jp.concatenate([
-#         data.qpos,
-#         data.qvel,
-#         gripper_pos,
-#         gripper_mat[3:],
-#         data.xmat[self._box_body].ravel()[3:],
-#         data.xpos[self._box_body] - data.site_xpos[self._gripper_site],
-#         info['target_pos'] - data.xpos[self._box_body],
-#         data.ctrl - data.qpos[self._robot_qposadr[:-1]],
-#     ])
+    new_tip_pose = jp.identity(4)
+    new_tip_pose = new_tip_pose.at[:3, :3].set(current_tip_rotation)
+    new_tip_pose = new_tip_pose.at[:3, 3].set(new_tip_position)
 
-#     return obs
+    jaw = jp.clip(action[3], 0, 1)
+    jointpos = compute_franka_ik(new_tip_pose, current_qpos[6], current_qpos[:7])
+    jointpos_withjaw = jp.append(jointpos, jaw)
+    jax.debug.print("jointpos_withjaw {x}", x=jointpos_withjaw)
+    
+    # TODO: Should probably check if there are nan values and do something smart about it
+
+    return jointpos_withjaw, new_tip_position
+
+  # def _get_obs(self, data: base.State, info: dict[str, Any]) -> jax.Array:
+  #   gripper_pos = data.site_xpos[self._gripper_site]
+  #   gripper_mat = data.site_xmat[self._gripper_site].ravel()
+  #   obs = jp.concatenate([
+  #       data.qpos,
+  #       data.qvel,
+  #       gripper_pos,
+  #       gripper_mat[3:],
+  #       data.xmat[self._box_body].ravel()[3:],
+  #       data.xpos[self._box_body] - data.site_xpos[self._gripper_site],
+  #       info['target_pos'] - data.xpos[self._box_body],
+  #       data.ctrl - data.qpos[self._robot_qposadr[:-1]],
+  #   ])
+
+  #   return obs
 
 
 if __name__ == '__main__':
