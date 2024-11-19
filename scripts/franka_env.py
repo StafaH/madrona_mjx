@@ -30,6 +30,7 @@ class RobotAutoResetWrapper(Wrapper):
     state.info['first_pipeline_state'] = state.pipeline_state
     state.info['first_obs'] = state.obs
     state.info['first_cp'] = state.info['current_pos']
+    state.info['first_reward'] = state.reward
     return state
 
   def step(self, state: State, action: jax.Array) -> State:
@@ -51,6 +52,7 @@ class RobotAutoResetWrapper(Wrapper):
     )
     obs = where_done(state.info['first_obs'], state.obs)
     state.info['current_pos'] = where_done(state.info['first_cp'], state.info['current_pos'])
+    state.info['prev_reward'] = where_done(state.info['first_reward'], state.info['prev_reward'])
     return state.replace(pipeline_state=pipeline_state, obs=obs, info=state.info)
 
 
@@ -66,13 +68,13 @@ def default_config():
       # The coefficients for all reward terms used for training.
       reward_scales=config_dict.create(
           # Gripper goes to the box.
-          gripper_box=4.0,
+          gripper_box=1.0,
           # Box goes to the target mocap.
-          box_target=8.0,
+          box_target=1.0,
           # Do not collide the gripper with the floor.
-          no_floor_collision=0.25,
-          # # Arm stays close to target pose.
-          # robot_target_qpos=0.3,
+          # no_floor_collision=0.25,
+          # Sparse grasp
+          sparse_grasp=2.0,
       ),
   )
 
@@ -137,6 +139,7 @@ class PandaBringToTargetVision(PipelineEnv):
     self._right_finger_geom = model.geom('right_finger_pad').id
     self._hand_geom = model.geom('hand_capsule').id
     self._box_body = model.body('box').id
+    self._box_geom = model.geom('box').id
     self._box_qposadr = model.jnt_qposadr[model.body('box').jntadr[0]]
     # TODO(btaba): replace with mocap_pos once MJX version 3.2.3 is released.
     self._target_id = model.body('mocap_target').id
@@ -201,8 +204,9 @@ class PandaBringToTargetVision(PipelineEnv):
         **{k: 0.0 for k in self._config.reward_scales.keys()},
     }
     info = {'rng': rng,
-            'target_pos': target_pos, 
+            'target_pos': target_pos,
             'reached_box': 0.0,
+            'prev_reward': 0.0,
             'current_pos': self._start_tip_transform[:3, 3]}
     reward, done = jp.zeros(2)
 
@@ -237,40 +241,46 @@ class PandaBringToTargetVision(PipelineEnv):
     target_pos = state.info['target_pos']
     box_pos = data.xpos[self._box_body]
     gripper_pos = data.site_xpos[self._gripper_site]
-    box_target = 1 - jp.tanh(5 * jp.linalg.norm(target_pos - box_pos))
-    gripper_box = 1 - jp.tanh(5 * jp.linalg.norm(box_pos - gripper_pos))
-    # robot_target_qpos = 1 - jp.tanh(
-    #     jp.linalg.norm(
-    #         state.pipeline_state.qpos[self._robot_arm_qposadr]
-    #         - self._init_q[self._robot_arm_qposadr]
-    #     )
+    box_target = self.exp_distance(box_pos, target_pos, 0.015, 100.0, 2.0)
+    gripper_box = self.exp_distance(box_pos, gripper_pos, 0.015, 100.0, 2.0)
+    # box_target = 1 - jp.tanh(5 * jp.linalg.norm(target_pos - box_pos))
+    # gripper_box = 1 - jp.tanh(5 * jp.linalg.norm(box_pos - gripper_pos))
+
+    # hand_floor_collision = [
+    #     _geoms_colliding(state.pipeline_state, self._floor_geom, g)
+    #     for g in [
+    #         self._left_finger_geom,
+    #         self._right_finger_geom,
+    #         self._hand_geom,
+    #     ]
+    # ]
+    # floor_collision = sum(hand_floor_collision) > 0
+    # no_floor_collision = 1 - floor_collision
+
+    # state.info['reached_box'] = 1.0 * jp.maximum(
+    #     state.info['reached_box'],
+    #     (jp.linalg.norm(box_pos - gripper_pos) < 0.012),
     # )
 
-    hand_floor_collision = [
-        _geoms_colliding(state.pipeline_state, self._floor_geom, g)
-        for g in [
-            self._left_finger_geom,
-            self._right_finger_geom,
-            self._hand_geom,
-        ]
+    finger_box_collision = [
+        _geoms_colliding(state.pipeline_state, g, self._box_body)
+        for g in [self._left_finger_geom, self._right_finger_geom]
     ]
-    floor_collision = sum(hand_floor_collision) > 0
-    no_floor_collision = 1 - floor_collision
 
-    state.info['reached_box'] = 1.0 * jp.maximum(
-        state.info['reached_box'],
-        (jp.linalg.norm(box_pos - gripper_pos) < 0.012),
-    )
+    box_grasped = sum(finger_box_collision) > 1
 
     rewards = {
         'box_target': box_target * state.info['reached_box'],
         'gripper_box': gripper_box,
-        'no_floor_collision': no_floor_collision,
-        # 'robot_target_qpos': robot_target_qpos,
+        'sparse_grasp': box_grasped,
+        # 'no_floor_collision': no_floor_collision,
     }
     rewards = {k: v * self._config.reward_scales[k] for k, v in rewards.items()}
-    reward = jp.clip(sum(rewards.values()), -1e4, 1e4)
-    reward = jp.where(jp.isnan(reward), 0.0, reward)
+    total_reward = jp.clip(sum(rewards.values()), -1e4, 1e4)
+    total_reward = jp.where(jp.isnan(total_reward), 0.0, total_reward)
+
+    reward = total_reward - state.info['prev_reward']
+    state.info['prev_reward'] = total_reward
 
     out_of_bounds = jp.any(jp.abs(box_pos) > 1.0)
     out_of_bounds |= box_pos[2] < 0.0
@@ -317,6 +327,19 @@ class PandaBringToTargetVision(PipelineEnv):
     
     # TODO: Should probably check if there are nan values and do something smart about it
     return jointpos_withjaw, new_tip_position
+  
+  def exp_distance(
+    self,
+    cur_pos: jax.Array,
+    tar_pos: jax.Array,
+    tol: float,
+    max_dist: float,
+    exp_multiplier: float) -> jax.Array:
+    """Exponential shaped distance reward function."""
+    d = jp.linalg.norm(jp.asarray(cur_pos - tar_pos), ord=2)
+    d -= tol
+    d = jp.clip(d, min=0, max=max_dist)
+    return jp.exp(-exp_multiplier * d)
 
 
 if __name__ == '__main__':
@@ -326,7 +349,7 @@ if __name__ == '__main__':
   def limit_jax_mem(limit):
     os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = f"{limit:.2f}"
   
-  limit_jax_mem(0.6)
+  limit_jax_mem(0.1)
   env = PandaBringToTargetVision(
     render_batch_size=num_worlds,
     gpu_id=0,
@@ -335,7 +358,8 @@ if __name__ == '__main__':
     use_rt=False)
 
   env = training.VmapWrapper(env)
-  env = training.EpisodeWrapper(env, 1000, 1)
+  env = training.EpisodeWrapper(env, 20, 1)
+  env = RobotAutoResetWrapper(env)
 
   reset_fn = jax.jit(env.reset)
   step_fn = jax.jit(env.step)

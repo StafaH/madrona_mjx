@@ -97,8 +97,8 @@ if __name__ == '__main__':
       use_rt=args.use_raytracer,
       max_depth=2)
   
-  episode_length = 250
-  action_repeat = 2
+  episode_length = 500
+  action_repeat = 5
   batch_size = 256
   network_factory = functools.partial(
     make_vision_ppo_networks,
@@ -112,7 +112,7 @@ if __name__ == '__main__':
   env = RobotAutoResetWrapper(env)
 
   train_fn = functools.partial(
-    ppo.train, num_timesteps=args.num_steps, num_evals=5, reward_scaling=0.1,
+    ppo.train, num_timesteps=args.num_steps, num_evals=5, reward_scaling=1.0,
     episode_length=episode_length, normalize_observations=True, action_repeat=action_repeat,
     unroll_length=10, num_minibatches=8, num_updates_per_batch=8,
     discounting=0.97, learning_rate=5e-4, entropy_cost=5e-3, 
