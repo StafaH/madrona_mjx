@@ -34,9 +34,9 @@ def default_config():
       # The coefficients for all reward terms used for training.
       reward_scales=config_dict.create(
           # Gripper goes to the box.
-          gripper_box=1.0,
+          gripper_box=4.0,
           # Box goes to the target mocap.
-          box_target=1.0,
+          box_target=8.0,
           # Do not collide the gripper with the floor.
           # no_floor_collision=0.25,
           # # Arm stays close to target pose.
@@ -214,16 +214,16 @@ class PandaBringToTargetVision(PipelineEnv):
     #     )
     # )
 
-    hand_floor_collision = [
-        _geoms_colliding(state.pipeline_state, self._floor_geom, g)
-        for g in [
-            self._left_finger_geom,
-            self._right_finger_geom,
-            self._hand_geom,
-        ]
-    ]
-    floor_collision = sum(hand_floor_collision) > 0
-    no_floor_collision = 1 - floor_collision
+    # hand_floor_collision = [
+    #     _geoms_colliding(state.pipeline_state, self._floor_geom, g)
+    #     for g in [
+    #         self._left_finger_geom,
+    #         self._right_finger_geom,
+    #         self._hand_geom,
+    #     ]
+    # ]
+    # floor_collision = sum(hand_floor_collision) > 0
+    # no_floor_collision = 1 - floor_collision
 
     state.info['reached_box'] = 1.0 * jp.maximum(
         state.info['reached_box'],
@@ -233,7 +233,7 @@ class PandaBringToTargetVision(PipelineEnv):
     rewards = {
         'box_target': box_target * state.info['reached_box'],
         'gripper_box': gripper_box,
-        'no_floor_collision': no_floor_collision,
+        # 'no_floor_collision': no_floor_collision,
         # 'robot_target_qpos': robot_target_qpos,
     }
     rewards = {k: v * self._config.reward_scales[k] for k, v in rewards.items()}
@@ -281,7 +281,6 @@ class PandaBringToTargetVision(PipelineEnv):
     jaw = jp.clip(action[3], 0, 1)
     jointpos = compute_franka_ik(new_tip_pose, current_qpos[6], current_qpos[:7])
     jointpos_withjaw = jp.append(jointpos, jaw)
-    jax.debug.print("jointpos_withjaw {x}", x=jointpos_withjaw)
     
     # TODO: Should probably check if there are nan values and do something smart about it
 
