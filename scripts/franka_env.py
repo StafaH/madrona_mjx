@@ -7,7 +7,7 @@ from typing import Optional, Any, List, Sequence, Dict, Tuple, Union, Callable
 
 from brax import base
 from brax.envs.base import PipelineEnv
-from brax.envs.base import State
+from brax.envs.base import State, Wrapper
 from brax.io import mjcf
 
 from etils import epath
@@ -21,6 +21,38 @@ from brax.envs import training
 FRANKA_PANDA_ROOT_PATH = epath.Path('mujoco_menagerie/franka_emika_panda')
 
 from franka_ik import compute_franka_fk, compute_franka_ik
+
+class RobotAutoResetWrapper(Wrapper):
+  """Automatically resets Brax envs that are done."""
+
+  def reset(self, rng: jax.Array) -> State:
+    state = self.env.reset(rng)
+    state.info['first_pipeline_state'] = state.pipeline_state
+    state.info['first_obs'] = state.obs
+    state.info['first_cp'] = state.info['current_pos']
+    return state
+
+  def step(self, state: State, action: jax.Array) -> State:
+    if 'steps' in state.info:
+      steps = state.info['steps']
+      steps = jp.where(state.done, jp.zeros_like(steps), steps)
+      state.info.update(steps=steps)
+    state = state.replace(done=jp.zeros_like(state.done))
+    state = self.env.step(state, action)
+
+    def where_done(x, y):
+      done = state.done
+      if done.shape:
+        done = jp.reshape(done, [x.shape[0]] + [1] * (len(x.shape) - 1))  # type: ignore
+      return jp.where(done, x, y)
+
+    pipeline_state = jax.tree.map(
+        where_done, state.info['first_pipeline_state'], state.pipeline_state
+    )
+    obs = where_done(state.info['first_obs'], state.obs)
+    state.info['current_pos'] = where_done(state.info['first_cp'], state.info['current_pos'])
+    return state.replace(pipeline_state=pipeline_state, obs=obs, info=state.info)
+
 
 def default_config():
   """Returns reward config for the environment."""
@@ -120,7 +152,7 @@ class PandaBringToTargetVision(PipelineEnv):
 
     # Using fk ik for cartesian control
     self._start_tip_transform = compute_franka_fk(self._init_ctrl[:7])
-    self._speed_multiplier = 0.005
+    self._speed_multiplier = 0.0035
 
     self.renderer = BatchRenderer(sys,
                                   gpu_id,
@@ -238,6 +270,7 @@ class PandaBringToTargetVision(PipelineEnv):
     }
     rewards = {k: v * self._config.reward_scales[k] for k, v in rewards.items()}
     reward = jp.clip(sum(rewards.values()), -1e4, 1e4)
+    reward = jp.where(jp.isnan(reward), 0.0, reward)
 
     out_of_bounds = jp.any(jp.abs(box_pos) > 1.0)
     out_of_bounds |= box_pos[2] < 0.0

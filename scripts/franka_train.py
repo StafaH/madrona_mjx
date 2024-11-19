@@ -59,7 +59,7 @@ from brax.io import model
 from brax.training.agents.ppo import train as ppo
 from brax.training.agents.ppo import networks as ppo_networks
 
-from franka_env import PandaBringToTargetVision
+from franka_env import PandaBringToTargetVision, RobotAutoResetWrapper
 from vision_ppo import make_vision_ppo_networks
 
 arg_parser = argparse.ArgumentParser()
@@ -109,7 +109,7 @@ if __name__ == '__main__':
 
   env = training.VmapWrapper(env)
   env = training.EpisodeWrapper(env, episode_length=episode_length, action_repeat=action_repeat)
-  env = training.AutoResetWrapper(env)
+  env = RobotAutoResetWrapper(env)
 
   train_fn = functools.partial(
     ppo.train, num_timesteps=args.num_steps, num_evals=5, reward_scaling=0.1,
