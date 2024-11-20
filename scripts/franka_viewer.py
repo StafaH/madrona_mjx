@@ -67,7 +67,7 @@ from mujoco.mjx._src import math
 from mujoco.mjx._src import io
 from mujoco.mjx._src import support
 
-from franka_env import PandaBringToTargetVision, RobotAutoResetWrapper
+from franka_env import PandaBringToTarget, RobotAutoResetWrapper
 from vision_ppo import make_vision_ppo_networks, make_inference_fn
 
 from madrona_mjx.viz import VisualizerGPUState, Visualizer
@@ -94,7 +94,7 @@ xla_flags += ' --xla_gpu_triton_gemm_any=True'
 os.environ['XLA_FLAGS'] = xla_flags
 
 if __name__ == '__main__':
-  env = PandaBringToTargetVision(
+  env = PandaBringToTarget(
     vision_obs=True,
     render_batch_size=args.num_worlds,
     gpu_id=args.gpu_id,
@@ -137,7 +137,8 @@ if __name__ == '__main__':
     if args.inference:
       ctrl, _ = jit_inference_fn(state.obs, act_rng)
     else:
-      ctrl = jax.random.uniform(act_rng, (args.num_worlds, env.sys.nu))
+      # ctrl = jax.random.uniform(act_rng, (args.num_worlds, env.action_size))
+      ctrl = jp.zeros((args.num_worlds, env.action_size))
     state = jit_env_step(state, ctrl)
 
     return rng, state

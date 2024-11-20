@@ -186,14 +186,13 @@ class PandaBringToTarget(PipelineEnv):
     
     return box_pos, target_pos
 
-
   def _reset2d(self, rng_box: jax.Array, rng_target: jax.Array) -> jax.Array:
     # intialize box position
     box_pos = jax.random.uniform(
         rng_box, (3,),
         minval=jp.array([0, -0.2, 0.0]),
         maxval=jp.array([0, 0.2, 0.0])) + self._init_box_pos
-    box_pos = box_pos.at[1].set(self._start_tip_transform[0, 3])
+    box_pos = box_pos.at[0].set(self._start_tip_transform[0, 3])
     target_pos = jp.array([0.5, 0.0, 0.3])
     
     return box_pos, target_pos
