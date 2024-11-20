@@ -1,0 +1,19 @@
+<mujoco model="pole">
+  <option timestep="0.02" iterations="1" ls_iterations="4">
+    <flag contact="disable" eulerdamp="disable"/>
+  </option>
+  <compiler angle="radian"/>
+
+  <worldbody>
+    <light name="light" pos="0 0 6"/>
+    <camera name="fixed" pos="0 -2.5 1.5" zaxis="0 -1 0"/>
+    <body name="pole" pos="0 0 1">
+        <joint name="hinge" type="hinge" axis="0 1 0" damping="5e-4" range="-1.8 1.8"/>
+        <geom name="pole" type="capsule" size="0.18" fromto="0 0 0 0 0 1" mass="0.1"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <position name="hinge" joint="hinge" kp="3" kv="0.3" ctrllimited="true" ctrlrange="-1.8 1.8" />
+  </actuator>
+</mujoco>
