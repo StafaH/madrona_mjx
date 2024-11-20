@@ -108,7 +108,7 @@ def _geoms_colliding(
   return _get_collision_info(state.contact, geom1, geom2)[0] < 0
 
 
-class PandaBringToTargetVision(PipelineEnv):
+class PandaBringToTarget(PipelineEnv):
   def __init__(
     self,
     vision_obs=False,
@@ -171,28 +171,39 @@ class PandaBringToTargetVision(PipelineEnv):
       self.renderer = BatchRenderer(
         sys, gpu_id, render_batch_size, render_width, render_height, 
         enabled_geom_groups, add_cam_debug_geo, use_rt, render_viz_gpu_hdls)
-
+  
   @property
   def action_size(self) -> int:
-    return 4
+    return 3
 
-  def reset(self, rng: jax.Array) -> State:
-    """Resets the environment to an initial state."""
-    rng, rng_box, rng_target = jax.random.split(rng, 3)
-
+  def _reset3d(self, rng_box: jax.Array, rng_target: jax.Array) -> jax.Array:
     # intialize box position
     box_pos = jax.random.uniform(
         rng_box, (3,),
         minval=jp.array([-0.2, -0.2, 0.0]),
         maxval=jp.array([0.2, 0.2, 0.0])) + self._init_box_pos
-
-    # # initialize target position
-    # target_pos = jax.random.uniform(
-    #     rng_target, (3,),
-    #     minval=jp.array([-0.2, -0.2, 0.2]),
-    #     maxval=jp.array([0.2, 0.2, 0.4])) + self._init_box_pos
     target_pos = jp.array([0.5, 0.0, 0.3])
+    
+    return box_pos, target_pos
 
+
+  def _reset2d(self, rng_box: jax.Array, rng_target: jax.Array) -> jax.Array:
+    # intialize box position
+    box_pos = jax.random.uniform(
+        rng_box, (3,),
+        minval=jp.array([0, -0.2, 0.0]),
+        maxval=jp.array([0, 0.2, 0.0])) + self._init_box_pos
+    box_pos = box_pos.at[1].set(self._start_tip_transform[0, 3])
+    target_pos = jp.array([0.5, 0.0, 0.3])
+    
+    return box_pos, target_pos
+
+  def reset(self, rng: jax.Array) -> State:
+    """Resets the environment to an initial state."""
+    rng, rng_box, rng_target = jax.random.split(rng, 3)
+
+    box_pos, target_pos = self._reset2d(rng_box, rng_target)
+    
     # initialize pipeline state
     init_q = jp.array(self._init_q).at[
         self._box_qposadr : self._box_qposadr + 3].set(box_pos)
@@ -230,13 +241,22 @@ class PandaBringToTargetVision(PipelineEnv):
         'depth': depth[0],
       })
     else:
-      obs = self._get_obs(pipeline_state, jp.zeros(self.sys.nu))
+      obs = self._get_obs(pipeline_state, info)
 
     return State(pipeline_state, obs, reward, done, metrics, info)
 
+  def _step3d(self, state: State, action: jax.Array) -> jax.Array:
+    return action
+
+  def _step2d(self, state: State, action: jax.Array) -> jax.Array:
+    mod_action = jp.zeros(4)
+    mod_action = mod_action.at[1:4].set(action)
+    return mod_action
+
   def step(self, state: State, action: jax.Array) -> State:
     """Runs one timestep of the environment's dynamics."""
-    ctrl, new_tip_position = self.move_tip(
+    action = self._step2d(state, action)
+    ctrl, new_tip_position = self._move_tip(
       state.info['current_pos'],
       self._start_tip_transform[:3, :3],
       state.pipeline_state.qpos,
@@ -253,8 +273,8 @@ class PandaBringToTargetVision(PipelineEnv):
     target_pos = state.info['target_pos']
     box_pos = data.xpos[self._box_body]
     gripper_pos = data.site_xpos[self._gripper_site]
-    box_target = self.exp_distance(box_pos, target_pos, 0.02, 100.0, 5.0)
-    gripper_box = self.exp_distance(gripper_pos, box_pos, 0.02, 100.0, 5.0)
+    box_target = self._exp_distance(box_pos, target_pos, 0.02, 100.0, 5.0)
+    gripper_box = self._exp_distance(gripper_pos, box_pos, 0.02, 100.0, 5.0)
 
     finger_box_collision = [
         _geoms_colliding(state.pipeline_state, self._box_geom, g)
@@ -311,36 +331,39 @@ class PandaBringToTargetVision(PipelineEnv):
         info['target_pos'] - data.xpos[self._box_body],
         data.ctrl - data.qpos[self._robot_qposadr[:-1]],
     ])
+    return obs
 
-  def move_tip(
+  def _move_tip(
     self,
-    current_tip_position: jax.Array,
-    current_tip_rotation: jax.Array,
+    current_tip_pos: jax.Array,
+    current_tip_rot: jax.Array,
     current_qpos: jax.Array,
     action: jax.Array,
     speed_multiplier: float) -> jax.Array:
     """Calculate new tip position from cartesian increment."""
-    scaled_position_increment = action[:3] * speed_multiplier
-    new_tip_position = current_tip_position.at[:3].add(scaled_position_increment)
-    
-    # new_tip_position = jp.clip(new_tip_position, -1, 1)
-    new_tip_position = new_tip_position.at[0].set(jp.clip(new_tip_position[0], 0.25, 0.77))
-    new_tip_position = new_tip_position.at[1].set(jp.clip(new_tip_position[1], -0.32, 0.32))
-    new_tip_position = new_tip_position.at[2].set(jp.clip(new_tip_position[2], 0.02, 0.5))
+    scaled_pos = action[:3] * speed_multiplier
+    new_tip_pos = current_tip_pos.at[:3].add(scaled_pos)
 
-    new_tip_pose = jp.identity(4)
-    new_tip_pose = new_tip_pose.at[:3, :3].set(current_tip_rotation)
-    new_tip_pose = new_tip_pose.at[:3, 3].set(new_tip_position)
-
-    jaw = jp.clip(action[3], 0.0, 0.04)
-
-    jointpos = compute_franka_ik(new_tip_pose, current_qpos[6], current_qpos[:7])
-    jointpos_withjaw = jp.append(jointpos, jaw)
-    
-    # TODO: Should probably check if there are nan values and do something smart about it
-    return jointpos_withjaw, new_tip_position
+    new_jp = current_qpos[:8]
   
-  def exp_distance(
+    new_tip_pos = new_tip_pos.at[0].set(jp.clip(new_tip_pos[0], 0.25, 0.77))
+    new_tip_pos = new_tip_pos.at[1].set(jp.clip(new_tip_pos[1], -0.32, 0.32))
+    new_tip_pos = new_tip_pos.at[2].set(jp.clip(new_tip_pos[2], 0.02, 0.5))
+
+    new_tip_mat = jp.identity(4)
+    new_tip_mat = new_tip_mat.at[:3, :3].set(current_tip_rot)
+    new_tip_mat = new_tip_mat.at[:3, 3].set(new_tip_pos)
+
+    out_jp = compute_franka_ik(new_tip_mat, current_qpos[6], current_qpos[:7])
+    out_jp = jp.where(jp.any(jp.isnan(out_jp)), current_qpos[:7], out_jp)
+    new_tip_pos = jp.where(jp.any(jp.isnan(new_jp)), current_tip_pos, new_tip_pos)
+    
+    new_jp = new_jp.at[:7].set(out_jp)
+    new_jp = new_jp.at[8].set(jp.clip(action[3], 0.0, 0.04))
+
+    return new_jp, new_tip_pos
+  
+  def _exp_distance(
     self,
     cur_pos: jax.Array,
     tar_pos: jax.Array,
@@ -353,20 +376,19 @@ class PandaBringToTargetVision(PipelineEnv):
     d = jp.clip(d, min=0, max=max_dist)
     return jp.exp(-exp_multiplier * d)
 
-
 if __name__ == '__main__':
 
   num_worlds = 8
-  
   def limit_jax_mem(limit):
     os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = f"{limit:.2f}"
   
-  limit_jax_mem(0.1)
-  env = PandaBringToTargetVision(
+  limit_jax_mem(0.2)
+  env = PandaBringToTarget(
+    vision_obs=False,
     render_batch_size=num_worlds,
     gpu_id=0,
-    width=64,
-    height=64,
+    render_width=64,
+    render_height=64,
     use_rt=False)
 
   env = training.VmapWrapper(env)
