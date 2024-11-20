@@ -78,7 +78,7 @@ args = arg_parser.parse_args()
 
 def limit_jax_mem(limit):
     os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = f"{limit:.2f}"
-limit_jax_mem(0.6)
+limit_jax_mem(0.65)
 
 
 # Tell XLA to use Triton GEMM
@@ -90,20 +90,21 @@ os.environ['XLA_FLAGS'] = xla_flags
 if __name__ == '__main__':
   print("Initializing...")
   env = PandaBringToTargetVision(
-      render_batch_size=args.num_worlds,
-      gpu_id=args.gpu_id,
-      width=args.batch_render_view_width,
-      height=args.batch_render_view_height,
-      use_rt=args.use_raytracer,
-      max_depth=2)
+    vision_obs=True,
+    render_batch_size=args.num_worlds,
+    gpu_id=args.gpu_id,
+    render_width=args.batch_render_view_width,
+    render_height=args.batch_render_view_height,
+    use_rt=args.use_raytracer,
+    max_depth=2)
   
   episode_length = 500
   action_repeat = 5
   batch_size = 256
   network_factory = functools.partial(
     make_vision_ppo_networks,
-    policy_hidden_layer_sizes=[512, 256, 128],
-    value_hidden_layer_sizes=[512, 256, 128],
+    policy_hidden_layer_sizes=[128, 128, 128],
+    value_hidden_layer_sizes=[128, 128, 128],
     image_dim=(args.batch_render_view_width, args.batch_render_view_height))
   num_eval_envs = args.num_worlds
 
@@ -115,7 +116,7 @@ if __name__ == '__main__':
     ppo.train, num_timesteps=args.num_steps, num_evals=5, reward_scaling=1.0,
     episode_length=episode_length, normalize_observations=True, action_repeat=action_repeat,
     unroll_length=10, num_minibatches=8, num_updates_per_batch=8,
-    discounting=0.97, learning_rate=5e-4, entropy_cost=5e-3, 
+    discounting=0.97, learning_rate=3e-4, entropy_cost=1e-2, 
     num_envs=args.num_worlds, num_eval_envs=num_eval_envs, num_resets_per_eval=1,
     batch_size=batch_size, seed=0, network_factory=network_factory, wrap_env=False)
 

@@ -95,13 +95,14 @@ os.environ['XLA_FLAGS'] = xla_flags
 
 if __name__ == '__main__':
   env = PandaBringToTargetVision(
-      render_batch_size=args.num_worlds,
-      gpu_id=args.gpu_id,
-      width=args.batch_render_view_width,
-      height=args.batch_render_view_height,
-      add_cam_debug_geo=args.add_cam_debug_geo,
-      use_rt=args.use_raytracer,
-      render_viz_gpu_hdls=viz_gpu_state.get_gpu_handles(),
+    vision_obs=True,
+    render_batch_size=args.num_worlds,
+    gpu_id=args.gpu_id,
+    render_width=args.batch_render_view_width,
+    render_height=args.batch_render_view_height,
+    add_cam_debug_geo=args.add_cam_debug_geo,
+    use_rt=args.use_raytracer,
+    render_viz_gpu_hdls=viz_gpu_state.get_gpu_handles(),
   )
 
   if args.inference:
