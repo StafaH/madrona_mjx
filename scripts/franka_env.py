@@ -193,7 +193,7 @@ class PandaBringToTarget(PipelineEnv):
         minval=jp.array([0, -0.2, 0.0]),
         maxval=jp.array([0, 0.2, 0.0])) + self._init_box_pos
     box_pos = box_pos.at[0].set(self._start_tip_transform[0, 3])
-    target_pos = jp.array([0.5, 0.0, 0.3])
+    target_pos = jp.array([self._start_tip_transform[0, 3], 0.0, 0.3])
     
     return box_pos, target_pos
 
@@ -230,10 +230,10 @@ class PandaBringToTarget(PipelineEnv):
 
     if self._vision_obs:
       render_token, rgb, depth = self.renderer.init(pipeline_state)
-      obs = jp.asarray(rgb[0], dtype=jp.float32) / 255.0
-      norm_depth = jp.clip(depth[0], 0, self._max_depth)
-      norm_depth = norm_depth / self._max_depth
-      obs = obs.at[:, :, 3].set(norm_depth[..., 0])
+      obs = jp.asarray(rgb[0][:, :, :3], dtype=jp.float32) / 255.0
+      # norm_depth = jp.clip(depth[0], 0, self._max_depth)
+      # norm_depth = norm_depth / self._max_depth
+      # obs = obs.at[:, :, 3].set(norm_depth[..., 0])
       info.update({
         'render_token': render_token,
         'rgb': rgb[0],
@@ -303,10 +303,10 @@ class PandaBringToTarget(PipelineEnv):
     if self._vision_obs:
       _, rgb, depth = self.renderer.render(state.info['render_token'], data)
       state.info.update({'rgb': rgb[0], 'depth': depth[0]})
-      obs = jp.asarray(rgb[0], dtype=jp.float32) / 255.0
-      norm_depth = jp.clip(depth[0], 0, self._max_depth)
-      norm_depth = norm_depth / self._max_depth
-      obs = obs.at[:, :, 3].set(norm_depth[..., 0])
+      obs = jp.asarray(rgb[0][:, :, :3], dtype=jp.float32) / 255.0
+      # norm_depth = jp.clip(depth[0], 0, self._max_depth)
+      # norm_depth = norm_depth / self._max_depth
+      # obs = obs.at[:, :, 3].set(norm_depth[..., 0])
     else:
       obs = self._get_obs(data, state.info)
 

@@ -59,7 +59,7 @@ from brax.io import model
 from brax.training.agents.ppo import train as ppo
 from brax.training.agents.ppo import networks as ppo_networks
 
-from franka_env import PandaBringToTargetVision, RobotAutoResetWrapper
+from franka_env import PandaBringToTarget, RobotAutoResetWrapper
 from vision_ppo import make_vision_ppo_networks
 
 arg_parser = argparse.ArgumentParser()
@@ -89,7 +89,7 @@ os.environ['XLA_FLAGS'] = xla_flags
 
 if __name__ == '__main__':
   print("Initializing...")
-  env = PandaBringToTargetVision(
+  env = PandaBringToTarget(
     vision_obs=True,
     render_batch_size=args.num_worlds,
     gpu_id=args.gpu_id,
@@ -99,12 +99,12 @@ if __name__ == '__main__':
     max_depth=2)
   
   episode_length = 500
-  action_repeat = 5
+  action_repeat = 4
   batch_size = 256
   network_factory = functools.partial(
     make_vision_ppo_networks,
-    policy_hidden_layer_sizes=[128, 128, 128],
-    value_hidden_layer_sizes=[128, 128, 128],
+    policy_hidden_layer_sizes=[256, 256, 256],
+    value_hidden_layer_sizes=[256, 256, 256],
     image_dim=(args.batch_render_view_width, args.batch_render_view_height))
   num_eval_envs = args.num_worlds
 
@@ -116,7 +116,7 @@ if __name__ == '__main__':
     ppo.train, num_timesteps=args.num_steps, num_evals=5, reward_scaling=1.0,
     episode_length=episode_length, normalize_observations=True, action_repeat=action_repeat,
     unroll_length=10, num_minibatches=8, num_updates_per_batch=8,
-    discounting=0.97, learning_rate=3e-4, entropy_cost=1e-2, 
+    discounting=0.97, learning_rate=3e-4, entropy_cost=5e-3, 
     num_envs=args.num_worlds, num_eval_envs=num_eval_envs, num_resets_per_eval=1,
     batch_size=batch_size, seed=0, network_factory=network_factory, wrap_env=False)
 
