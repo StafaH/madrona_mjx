@@ -18,6 +18,49 @@ ModuleDef = Any
 ActivationFn = Callable[[jp.ndarray], jp.ndarray]
 Initializer = Callable[..., Any]
 
+class ManiSkillCNN(linen.Module):
+  layer_sizes: Sequence[int]
+  activation: ActivationFn = linen.relu
+  kernel_init: Initializer = jax.nn.initializers.lecun_uniform()
+  activate_final: bool = False
+  layer_norm: bool = False
+  dtype: Any = jp.float32
+
+  @linen.compact
+  def __call__(self, data: jp.ndarray):
+    conv = partial(linen.Conv, use_bias=True, dtype=self.dtype)
+    hidden = data
+
+    hidden = conv(features=16, kernel_size=(3, 3), name='conv1')(hidden)
+    hidden = self.activation(hidden)
+    hidden = linen.max_pool(hidden, window_shape=(2, 2), strides=(2, 2))
+
+    hidden = conv(features=32, kernel_size=(3, 3), name='conv2')(hidden)
+    hidden = self.activation(hidden)
+    hidden = linen.max_pool(hidden, window_shape=(2, 2), strides=(2, 2))
+
+    hidden = conv(features=64, kernel_size=(3, 3), name='conv3')(hidden)
+    hidden = self.activation(hidden)
+    hidden = linen.max_pool(hidden, window_shape=(2, 2), strides=(2, 2))
+
+    hidden = conv(features=128, kernel_size=(3, 3), name='conv4')(hidden)
+    hidden = self.activation(hidden)
+    hidden = linen.max_pool(hidden, window_shape=(2, 2), strides=(2, 2))
+
+    hidden = conv(features=128, kernel_size=(1, 1), name='conv5')(hidden)
+    hidden = self.activation(hidden)
+
+    hidden = jp.mean(hidden, axis=(-2, -3))
+
+    for i, layer_size in enumerate(self.layer_sizes):
+      hidden = linen.Dense(
+        layer_size, kernel_init=self.kernel_init, name=f'dense_{i}')(hidden)
+      if i != len(self.layer_sizes) - 1 or self.activate_final:
+        hidden = self.activation(hidden)
+        if self.layer_norm:
+          hidden = linen.LayerNorm()(hidden)
+    return hidden
+
 class SimpleCNN(linen.Module):
   layer_sizes: Sequence[int]
   activation: ActivationFn = linen.relu

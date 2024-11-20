@@ -102,8 +102,8 @@ if __name__ == '__main__':
   batch_size = 256
   network_factory = functools.partial(
     make_vision_ppo_networks,
-    policy_hidden_layer_sizes=[128, 128, 128],
-    value_hidden_layer_sizes=[128, 128, 128],
+    policy_hidden_layer_sizes=[512, 256, 128],
+    value_hidden_layer_sizes=[512, 256, 128],
     image_dim=(args.batch_render_view_width, args.batch_render_view_height))
   num_eval_envs = args.num_worlds
 
