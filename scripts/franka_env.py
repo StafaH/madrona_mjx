@@ -72,7 +72,7 @@ def default_config():
           # Box goes to the target mocap.
           box_target=2.0,
           # Do not collide the gripper with the floor.
-          # no_floor_collision=0.25,
+          no_floor_collision=0.25,
           # Sparse grasp
           sparse_grasp=2.0,
       ),
@@ -112,6 +112,7 @@ class PandaBringToTarget(PipelineEnv):
   def __init__(
     self,
     vision_obs=False,
+    action_size=3,
     render_batch_size=16,
     gpu_id=0,
     render_width=64,
@@ -165,6 +166,7 @@ class PandaBringToTarget(PipelineEnv):
     # Using fk ik for cartesian control
     self._start_tip_transform = compute_franka_fk(self._init_ctrl[:7])
     self._speed_multiplier = 0.005
+    self._action_size = action_size
 
     self._vision_obs = vision_obs
     if vision_obs:
@@ -174,34 +176,19 @@ class PandaBringToTarget(PipelineEnv):
   
   @property
   def action_size(self) -> int:
-    return 3
-
-  def _reset3d(self, rng_box: jax.Array, rng_target: jax.Array) -> jax.Array:
-    # intialize box position
-    box_pos = jax.random.uniform(
-        rng_box, (3,),
-        minval=jp.array([-0.2, -0.2, 0.0]),
-        maxval=jp.array([0.2, 0.2, 0.0])) + self._init_box_pos
-    target_pos = jp.array([0.5, 0.0, 0.3])
-    
-    return box_pos, target_pos
-
-  def _reset2d(self, rng_box: jax.Array, rng_target: jax.Array) -> jax.Array:
-    # intialize box position
-    box_pos = jax.random.uniform(
-        rng_box, (3,),
-        minval=jp.array([0, -0.2, 0.0]),
-        maxval=jp.array([0, 0.2, 0.0])) + self._init_box_pos
-    box_pos = box_pos.at[0].set(self._start_tip_transform[0, 3])
-    target_pos = jp.array([self._start_tip_transform[0, 3], 0.0, 0.3])
-    
-    return box_pos, target_pos
+    return self._action_size
 
   def reset(self, rng: jax.Array) -> State:
     """Resets the environment to an initial state."""
     rng, rng_box, rng_target = jax.random.split(rng, 3)
 
-    box_pos, target_pos = self._reset2d(rng_box, rng_target)
+    box_pos = jax.random.uniform(
+      rng_box, (3,),
+      minval=jp.array([-0.2, -0.2, 0.0]),
+      maxval=jp.array([0.2, 0.2, 0.0])) + self._init_box_pos
+    box_pos = jp.where(self._action_size == 3, box_pos.at[0].set(self._start_tip_transform[0, 3]), box_pos)
+    target_pos = jp.array([0.5, 0.0, 0.3])
+    target_pos = jp.where(self._action_size == 3, target_pos.at[0].set(self._start_tip_transform[0, 3]), target_pos)
     
     # initialize pipeline state
     init_q = jp.array(self._init_q).at[
@@ -244,17 +231,12 @@ class PandaBringToTarget(PipelineEnv):
 
     return State(pipeline_state, obs, reward, done, metrics, info)
 
-  def _step3d(self, state: State, action: jax.Array) -> jax.Array:
-    return action
-
-  def _step2d(self, state: State, action: jax.Array) -> jax.Array:
-    mod_action = jp.zeros(4)
-    mod_action = mod_action.at[1:4].set(action)
-    return mod_action
-
   def step(self, state: State, action: jax.Array) -> State:
     """Runs one timestep of the environment's dynamics."""
-    action = self._step2d(state, action)
+    increment = jp.zeros(4)
+    increment = increment.at[4 - self._action_size:].set(action)
+    # increment = jp.where(self._action_size == 3, increment.at[1:4].set(action), increment)
+
     ctrl, new_tip_position = self._move_tip(
       state.info['current_pos'],
       self._start_tip_transform[:3, :3],
@@ -282,10 +264,22 @@ class PandaBringToTarget(PipelineEnv):
 
     box_grasped = sum(finger_box_collision) > 1
 
+    hand_floor_collision = [
+        _geoms_colliding(state.pipeline_state, self._floor_geom, g)
+        for g in [
+            self._left_finger_geom,
+            self._right_finger_geom,
+            self._hand_geom,
+        ]
+    ]
+    floor_collision = sum(hand_floor_collision) > 0
+    no_floor_collision = 1 - floor_collision
+
     rewards = {
         'box_target': box_target * box_grasped,
         'gripper_box': gripper_box,
         'sparse_grasp': box_grasped,
+        'no_floor_collision': no_floor_collision,
     }
     rewards = {k: v * self._config.reward_scales[k] for k, v in rewards.items()}
     total_reward = jp.clip(sum(rewards.values()), -1e4, 1e4)
@@ -358,7 +352,7 @@ class PandaBringToTarget(PipelineEnv):
     new_tip_pos = jp.where(jp.any(jp.isnan(new_jp)), current_tip_pos, new_tip_pos)
     
     new_jp = new_jp.at[:7].set(out_jp)
-    new_jp = new_jp.at[8].set(jp.clip(action[3], 0.0, 0.04))
+    new_jp = new_jp.at[8].set(current_qpos[7] + (action[3] * 0.04))
 
     return new_jp, new_tip_pos
   

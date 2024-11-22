@@ -63,6 +63,7 @@ from franka_env import PandaBringToTarget, RobotAutoResetWrapper
 from vision_ppo import make_vision_ppo_networks
 
 arg_parser = argparse.ArgumentParser()
+arg_parser.add_argument('--vision', action='store_true')
 arg_parser.add_argument('--num-worlds', type=int, required=True)
 arg_parser.add_argument('--num-steps', type=int, default=20_000_000)
 arg_parser.add_argument('--save-model', action='store_true')
@@ -90,7 +91,7 @@ os.environ['XLA_FLAGS'] = xla_flags
 if __name__ == '__main__':
   print("Initializing...")
   env = PandaBringToTarget(
-    vision_obs=True,
+    vision_obs=args.vision,
     render_batch_size=args.num_worlds,
     gpu_id=args.gpu_id,
     render_width=args.batch_render_view_width,
@@ -99,14 +100,28 @@ if __name__ == '__main__':
     max_depth=2)
   
   episode_length = 500
-  action_repeat = 4
-  batch_size = 256
-  network_factory = functools.partial(
-    make_vision_ppo_networks,
-    policy_hidden_layer_sizes=[256, 256, 256],
-    value_hidden_layer_sizes=[256, 256, 256],
-    image_dim=(args.batch_render_view_width, args.batch_render_view_height))
-  num_eval_envs = args.num_worlds
+  action_repeat = 2
+
+  if args.vision:
+    network_factory = functools.partial(
+      make_vision_ppo_networks,
+      policy_hidden_layer_sizes=[128, 128, 128],
+      value_hidden_layer_sizes=[128, 128, 128],
+      image_dim=(args.batch_render_view_width, args.batch_render_view_height))
+    num_eval_envs = args.num_worlds
+    batch_size = 256
+  else:
+    network_factory = functools.partial(
+      ppo_networks.make_ppo_networks,
+          policy_hidden_layer_sizes=(32, 32, 32, 32))
+    num_eval_envs = 128
+    batch_size = 1024
+    num_minibatches = 32
+    num_updates_per_batch = 8
+    discounting=0.97
+    learning_rate=1e-3
+    entropy_cost=2e-2
+    discounting=0.97
 
   env = training.VmapWrapper(env)
   env = training.EpisodeWrapper(env, episode_length=episode_length, action_repeat=action_repeat)
@@ -115,8 +130,8 @@ if __name__ == '__main__':
   train_fn = functools.partial(
     ppo.train, num_timesteps=args.num_steps, num_evals=5, reward_scaling=1.0,
     episode_length=episode_length, normalize_observations=True, action_repeat=action_repeat,
-    unroll_length=10, num_minibatches=8, num_updates_per_batch=8,
-    discounting=0.97, learning_rate=3e-4, entropy_cost=5e-3, 
+    unroll_length=10, num_minibatches=num_minibatches, num_updates_per_batch=num_updates_per_batch,
+    discounting=discounting, learning_rate=learning_rate, entropy_cost=entropy_cost, 
     num_envs=args.num_worlds, num_eval_envs=num_eval_envs, num_resets_per_eval=1,
     batch_size=batch_size, seed=0, network_factory=network_factory, wrap_env=False)
 

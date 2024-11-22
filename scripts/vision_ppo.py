@@ -37,7 +37,7 @@ def make_vision_policy_network(
   layer_norm: bool = False) -> networks.FeedForwardNetwork:
 
   if network_type == 'cnn':
-    module = ManiSkillCNN(
+    module = SimpleCNN(
         layer_sizes=list(policy_hidden_layer_sizes) + [output_size],
         activation=activation,
         kernel_init=kernel_init,
@@ -64,7 +64,7 @@ def make_vision_value_network(
   ) -> networks.FeedForwardNetwork:
 
   if network_type == 'cnn':
-    value_module = ManiSkillCNN(
+    value_module = SimpleCNN(
         layer_sizes=list(value_hidden_layer_sizes) + [1],
         activation=activation,
         kernel_init=kernel_init)
